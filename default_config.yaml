@@ -1,0 +1,17 @@
+# ── configs/default_config.yaml ────────────────────────────────────────────
+# Shared configuration for all three experiment branches.
+# Override individual keys per experiment; never edit this file directly —
+# create a copy (e.g. configs/exp2_llm4teach.yaml) for each branch.
+
+# ── Environment ─────────────────────────────────────────────────────────────
+env_name: "MiniGrid-DoorKey-5x5-v0"   # gymnasium env id
+seed: 42                               # global random seed
+max_episode_steps: 300                 # max steps before truncation
+
+# ── Training ────────────────────────────────────────────────────────────────
+total_timesteps: 500000                # total env steps across all episodes
+learning_rate: 0.0003                  # optimiser learning rate (PPO default)
+gamma: 0.99                            # discount factor
+
+# ── Logging ─────────────────────────────────────────────────────────────────
+experiment_name: "base_minigrid_test"  # used for log/checkpoint folder names
