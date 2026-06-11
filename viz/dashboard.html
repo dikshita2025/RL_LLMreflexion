@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>MiniGrid Training Visualizer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0d13;--panel:#13151f;--panel2:#191c28;--border:#252836;
+  --text:#e2e8f0;--muted:#6b7280;--accent:#6366f1;
+  --green:#22c55e;--red:#ef4444;--yellow:#f59e0b;
+  --orange:#f97316;--blue:#3b82f6;--cyan:#06b6d4;--purple:#a855f7;
+  --font:'JetBrains Mono','Fira Code','Consolas',monospace;
+}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:12px;
+     display:flex;flex-direction:column}
+
+/* ── header ─────────────────────────────────────────────────────────── */
+header{display:flex;align-items:center;gap:10px;padding:7px 14px;
+  background:var(--panel);border-bottom:1px solid var(--border);flex-shrink:0;z-index:10}
+header h1{font-size:14px;font-weight:700;color:var(--accent)}
+#dot{width:9px;height:9px;border-radius:50%;background:var(--red);transition:background .4s}
+#dot.on{background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 1.4s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+#status{font-size:11px;color:var(--muted)}
+.spacer{flex:1}
+.btn{padding:4px 14px;border-radius:5px;border:none;cursor:pointer;
+  font-family:var(--font);font-size:11px;font-weight:700;transition:filter .15s}
+.btn-go{background:var(--green);color:#000}.btn-go:hover{filter:brightness(1.12)}
+.btn-stop{background:var(--red);color:#fff;display:none}.btn-stop:hover{filter:brightness(1.12)}
+select,input[type=number]{background:var(--panel2);border:1px solid var(--border);
+  color:var(--text);padding:3px 6px;border-radius:4px;font-family:var(--font);font-size:11px}
+select{min-width:86px}
+
+/* ── stat bar ────────────────────────────────────────────────────────── */
+#statbar{display:flex;background:var(--panel2);border-bottom:1px solid var(--border);flex-shrink:0}
+.st{padding:5px 14px;border-right:1px solid var(--border);text-align:center;min-width:82px}
+.st label{display:block;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.st span{display:block;font-size:13px;font-weight:700;margin-top:1px}
+
+/* ── main grid ───────────────────────────────────────────────────────── */
+main{display:grid;grid-template-columns:368px 1fr 292px;flex:1;overflow:hidden;min-height:0}
+
+/* ── LEFT: live env frame ────────────────────────────────────────────── */
+#left{border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;background:#070910}
+
+#frame-wrap{
+  flex:1;position:relative;display:flex;align-items:center;justify-content:center;
+  background:#04050a;min-height:0;overflow:hidden;
+}
+#env-img{
+  display:block;
+  max-width:100%;max-height:100%;
+  /* keep MiniGrid pixels crisp — no blur */
+  image-rendering:pixelated;
+  image-rendering:crisp-edges;
+  border-radius:2px;
+  transition:none;
+}
+#placeholder{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;color:var(--muted)
+}
+#placeholder .ph-icon{font-size:48px;opacity:.4}
+#placeholder p{font-size:11px;opacity:.5}
+
+/* badges overlaid on frame */
+#frame-badges{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;pointer-events:none}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.3px}
+.b-phase{background:rgba(99,102,241,.85);color:#fff}
+.b-mode{background:rgba(0,0,0,.6);color:var(--muted);border:1px solid var(--border)}
+.b-llm{background:rgba(168,85,247,.85);color:#fff;display:none}
+.b-llm.calling{display:inline-block;animation:pulse .8s infinite}
+
+/* step flash overlay */
+#step-flash{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:rgba(99,102,241,.15);transition:opacity .08s}
+#step-flash.flash{opacity:1}
+
+/* bottom info strip */
+#info-strip{padding:6px 10px;border-top:1px solid var(--border);display:grid;
+  grid-template-columns:1fr 1fr;gap:4px 10px;background:var(--panel);flex-shrink:0}
+.irow{display:flex;gap:5px;align-items:baseline}
+.irow label{font-size:9px;color:var(--muted);text-transform:uppercase;white-space:nowrap}
+.irow span{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+.irow.wide{grid-column:1/-1}
+
+/* episode result banner */
+#ep-banner{
+  position:absolute;bottom:10px;left:50%;transform:translateX(-50%) translateY(50px);
+  padding:6px 20px;border-radius:6px;font-size:13px;font-weight:700;
+  transition:transform .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;
+  white-space:nowrap;
+}
+#ep-banner.show{transform:translateX(-50%) translateY(0)}
+#ep-banner.success{background:#14532d;color:var(--green);border:1px solid var(--green)}
+#ep-banner.fail{background:#450a0a;color:var(--red);border:1px solid var(--red)}
+
+/* ── CENTRE: charts + config ─────────────────────────────────────────── */
+#centre{display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;flex:1;overflow:hidden;min-height:0}
+.cc{padding:8px 10px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);
+  display:flex;flex-direction:column;min-height:0;min-width:0}
+.cc:nth-child(even){border-right:none}
+.cc h3{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;flex-shrink:0}
+.cc canvas{flex:1;min-height:0;min-width:0}
+
+#cfg{border-top:1px solid var(--border);padding:7px 12px;display:flex;
+  flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel);flex-shrink:0}
+.cr{display:flex;align-items:center;gap:5px}
+.cr label{font-size:9px;color:var(--muted);white-space:nowrap;text-transform:uppercase}
+input[type=number]{width:64px}
+input[type=checkbox]{accent-color:var(--accent);width:12px;height:12px}
+
+/* ── RIGHT: LLM panel + event log ───────────────────────────────────── */
+#right{border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;min-height:0}
+
+/* LLM card */
+#llm-wrap{flex-shrink:0;border-bottom:1px solid var(--border)}
+#llm-hdr{padding:5px 10px;background:var(--panel);font-size:9px;text-transform:uppercase;
+  color:var(--muted);letter-spacing:.5px;display:flex;justify-content:space-between}
+#llm-body{padding:8px 10px;font-size:11px;min-height:72px}
+.lr{display:flex;gap:6px;margin-bottom:3px}
+.lk{color:var(--muted);flex-shrink:0;min-width:58px}
+.lv{word-break:break-all}
+.lbadge{padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px}
+.lb-ok{background:#14532d;color:var(--green)}
+.lb-fail{background:#450a0a;color:var(--red)}
+.lb-wait{background:#422006;color:var(--yellow);animation:pulse .9s infinite}
+.lb-cache{background:#1e3a5f;color:var(--cyan)}
+
+/* Event log */
+#log-hdr{padding:5px 10px;background:var(--panel);font-size:9px;text-transform:uppercase;
+  color:var(--muted);letter-spacing:.5px;display:flex;justify-content:space-between;
+  border-bottom:1px solid var(--border);flex-shrink:0}
+#log{flex:1;overflow-y:auto;min-height:0}
+.le{padding:2px 10px;font-size:10px;line-height:1.6;border-left:2px solid transparent}
+.le:hover{background:rgba(255,255,255,.025)}
+.le .t{color:var(--muted);margin-right:5px;font-size:9px}
+.le-step{border-color:#252836}
+.le-ep  {border-color:var(--green)}
+.le-fail{border-color:var(--red)}
+.le-itr {border-color:var(--blue);background:rgba(59,130,246,.04)}
+.le-llm {border-color:var(--purple)}
+.le-iv  {border-color:var(--orange)}
+.le-ph  {border-color:var(--accent);background:rgba(99,102,241,.06);font-weight:700}
+.le-err {border-color:var(--red);background:rgba(239,68,68,.07);color:var(--red)}
+
+/* scrollbar */
+::-webkit-scrollbar{width:3px;height:3px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* toast */
+#toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%) translateY(60px);
+  background:var(--panel2);border:1px solid var(--border);border-radius:6px;
+  padding:7px 18px;font-size:11px;transition:transform .25s;z-index:99}
+#toast.show{transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div id="dot"></div>
+  <h1>🎮 MiniGrid Training Visualizer</h1>
+  <span id="status">Disconnected</span>
+  <div class="spacer"></div>
+  <div class="cr"><label>Phase</label>
+    <select id="sel-phase">
+      <option value="ppo_only">ppo_only</option>
+      <option value="planner">planner</option>
+      <option value="reflection" selected>reflection</option>
+      <option value="__all__">▶ All 3 phases</option>
+    </select>
+  </div>
+  <button class="btn btn-go"   id="btn-start" onclick="startTraining()">▶ Start</button>
+  <button class="btn btn-stop" id="btn-stop"  onclick="stopTraining()">■ Stop</button>
+</header>
+
+<!-- Stat bar -->
+<div id="statbar">
+  <div class="st"><label>Phase</label>     <span id="s-ph"  style="color:var(--accent)">—</span></div>
+  <div class="st"><label>Iteration</label> <span id="s-itr">0 / 0</span></div>
+  <div class="st"><label>Episode</label>   <span id="s-ep">0</span></div>
+  <div class="st"><label>Step</label>      <span id="s-st">0</span></div>
+  <div class="st"><label>Success %</label> <span id="s-sr" style="color:var(--green)">0.000</span></div>
+  <div class="st"><label>Reward</label>    <span id="s-ret">0.000</span></div>
+  <div class="st"><label>KS Coef</label>   <span id="s-ks" style="color:var(--yellow)">1.000</span></div>
+  <div class="st"><label>Entropy</label>   <span id="s-ent">0.000</span></div>
+  <div class="st"><label>Steps</label>     <span id="s-ts">0</span></div>
+</div>
+
+<!-- Main -->
+<main>
+
+  <!-- LEFT: live env frame ────────────────────────────────────────────── -->
+  <div id="left">
+    <div id="frame-wrap">
+      <!-- Real MiniGrid rendered image — updated every step -->
+      <img id="env-img" alt="MiniGrid environment" style="display:none"/>
+
+      <!-- Placeholder before training starts -->
+      <div id="placeholder">
+        <div class="ph-icon">🗺️</div>
+        <p>Press ▶ Start to begin training.<br>The live MiniGrid view will appear here.</p>
+      </div>
+
+      <!-- Overlaid badges -->
+      <div id="frame-badges">
+        <span class="badge b-phase" id="b-phase">—</span>
+        <span class="badge b-mode"  id="b-mode">OFFLINE</span>
+        <span class="badge b-llm"   id="b-llm">🤖 LLM calling…</span>
+      </div>
+
+      <!-- Flash on every step -->
+      <div id="step-flash"></div>
+
+      <!-- Episode result banner -->
+      <div id="ep-banner"></div>
+    </div>
+
+    <!-- Info strip under the frame -->
+    <div id="info-strip">
+      <div class="irow"><label>Obs</label>    <span id="i-obs" title="">—</span></div>
+      <div class="irow"><label>Action</label> <span id="i-act">—</span></div>
+      <div class="irow wide"><label>Plan</label>    <span id="i-plan" title="">—</span></div>
+      <div class="irow"><label>Ep&nbsp;Reward</label><span id="i-eprew">0.000</span></div>
+      <div class="irow"><label>Intervention</label>  <span id="i-iv">—</span></div>
+    </div>
+  </div>
+
+  <!-- CENTRE: charts + config ─────────────────────────────────────────── -->
+  <div id="centre">
+    <div class="chart-grid">
+      <div class="cc"><h3>Success Rate</h3>   <canvas id="c-sr"></canvas></div>
+      <div class="cc"><h3>Avg Reward</h3>     <canvas id="c-ret"></canvas></div>
+      <div class="cc"><h3>KS Coefficient</h3> <canvas id="c-ks"></canvas></div>
+      <div class="cc"><h3>Entropy</h3>        <canvas id="c-ent"></canvas></div>
+    </div>
+    <div id="cfg">
+      <div class="cr"><label>Itr</label>
+        <input type="number" id="c-itr" value="200" min="10" max="5000" step="10"></div>
+      <div class="cr"><label>Eps/Itr</label>
+        <input type="number" id="c-eps" value="5"   min="1"  max="50"></div>
+      <div class="cr"><label>Epochs</label>
+        <input type="number" id="c-ep"  value="3"   min="1"  max="20"></div>
+      <div class="cr"><label>Batch</label>
+        <input type="number" id="c-bs"  value="64"  min="16" max="512" step="16"></div>
+      <div class="cr"><label>LR</label>
+        <input type="number" id="c-lr"  value="0.0003" step="0.0001" min="0.00001" max="0.01"></div>
+      <div class="cr"><label>Online&nbsp;LLM</label>
+        <input type="checkbox" id="c-llm"></div>
+      <div class="cr"><label>Viz&nbsp;Hz</label>
+        <input type="number" id="c-hz"  value="20"  min="1"  max="30"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: LLM + event log ──────────────────────────────────────────── -->
+  <div id="right">
+    <div id="llm-wrap">
+      <div id="llm-hdr">
+        <span>🤖 LLM Activity</span>
+        <span id="llm-cnt" style="color:var(--muted)">0 calls</span>
+      </div>
+      <div id="llm-body">
+        <div style="color:var(--muted)">No LLM calls yet.</div>
+      </div>
+    </div>
+    <div id="log-hdr">
+      <span>📋 Event Log</span>
+      <span id="log-cnt" style="color:var(--muted)">0 events</span>
+    </div>
+    <div id="log"></div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════
+   STATE
+════════════════════════════════════════════════════════════════════ */
+let ws = null, reconnTimer = null;
+let llmCalls = 0, logCount = 0;
+let epBannerTimer = null;
+let flashTimer = null;
+const MAX_LOG = 600, MAX_CHART = 300;
+
+/* ════════════════════════════════════════════════════════════════════
+   CHART SETUP
+════════════════════════════════════════════════════════════════════ */
+Chart.defaults.color         = '#6b7280';
+Chart.defaults.borderColor   = '#1e2332';
+Chart.defaults.font.family   = "'JetBrains Mono','Consolas',monospace";
+Chart.defaults.font.size     = 10;
+
+const MK_DS = (color, bg) => ({
+  data:[], borderColor:color, backgroundColor:bg,
+  tension:.35, pointRadius:0, borderWidth:1.5, fill:true,
+});
+const chartData = {
+  sr:  { labels:[], datasets:[MK_DS('#22c55e','rgba(34,197,94,.07)')]  },
+  ret: { labels:[], datasets:[MK_DS('#3b82f6','rgba(59,130,246,.07)')] },
+  ks:  { labels:[], datasets:[MK_DS('#f59e0b','rgba(245,158,11,.07)')] },
+  ent: { labels:[], datasets:[MK_DS('#a855f7','rgba(168,85,247,.07)')] },
+};
+const OPT = {
+  animation:false, responsive:true, maintainAspectRatio:false,
+  plugins:{legend:{display:false}},
+  scales:{
+    x:{ticks:{maxTicksLimit:5},grid:{color:'#1a1d2b'}},
+    y:{ticks:{maxTicksLimit:4},grid:{color:'#1a1d2b'}},
+  }
+};
+const charts = {
+  sr:  new Chart(document.getElementById('c-sr'),  {type:'line',data:chartData.sr,  options:{...OPT,scales:{...OPT.scales,y:{...OPT.scales.y,min:0,max:1}}}}),
+  ret: new Chart(document.getElementById('c-ret'), {type:'line',data:chartData.ret, options:OPT}),
+  ks:  new Chart(document.getElementById('c-ks'),  {type:'line',data:chartData.ks,  options:{...OPT,scales:{...OPT.scales,y:{...OPT.scales.y,min:0,max:1}}}}),
+  ent: new Chart(document.getElementById('c-ent'), {type:'line',data:chartData.ent, options:OPT}),
+};
+function pushChart(k, lbl, v) {
+  const d = chartData[k];
+  d.labels.push(lbl);
+  d.datasets[0].data.push(v);
+  if (d.labels.length > MAX_CHART) { d.labels.shift(); d.datasets[0].data.shift(); }
+  charts[k].update('none');
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   LIVE FRAME DISPLAY
+════════════════════════════════════════════════════════════════════ */
+const envImg      = document.getElementById('env-img');
+const placeholder = document.getElementById('placeholder');
+const stepFlash   = document.getElementById('step-flash');
+const epBanner    = document.getElementById('ep-banner');
+
+function showFrame(dataUri) {
+  if (!dataUri) return;
+  envImg.src = dataUri;
+  if (envImg.style.display === 'none') {
+    envImg.style.display = 'block';
+    placeholder.style.display = 'none';
+  }
+  // brief flash to signal a new frame arrived
+  clearTimeout(flashTimer);
+  stepFlash.classList.add('flash');
+  flashTimer = setTimeout(() => stepFlash.classList.remove('flash'), 80);
+}
+
+function showEpBanner(success, epLen, reward) {
+  clearTimeout(epBannerTimer);
+  const icon = success ? '✅ SUCCESS' : '❌ FAILED';
+  epBanner.textContent = `${icon}  ·  ${epLen} steps  ·  reward ${reward.toFixed(2)}`;
+  epBanner.className = `show ${success ? 'success' : 'fail'}`;
+  epBannerTimer = setTimeout(() => epBanner.classList.remove('show'), 3000);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   LLM PANEL
+════════════════════════════════════════════════════════════════════ */
+function updateLLM(ev) {
+  llmCalls++;
+  document.getElementById('llm-cnt').textContent = `${llmCalls} calls`;
+
+  const bllm = document.getElementById('b-llm');
+  if (ev.pending) { bllm.style.display = 'inline-block'; }
+  else            { bllm.style.display = 'none'; }
+
+  const badge = ev.pending
+    ? `<span class="lbadge lb-wait">⟳ calling…</span>`
+    : ev.cache_hit
+      ? `<span class="lbadge lb-cache">💾 cached</span>`
+      : ev.success
+        ? `<span class="lbadge lb-ok">✓ ok</span>`
+        : `<span class="lbadge lb-fail">✗ fail</span>`;
+
+  document.getElementById('llm-body').innerHTML = `
+    <div class="lr"><span class="lk">Type</span>    <span class="lv">${esc(ev.call_type||'planner')} ${badge}</span></div>
+    <div class="lr"><span class="lk">Obs</span>     <span class="lv">${esc(ev.obs_text||'—')}</span></div>
+    <div class="lr"><span class="lk">Plan</span>    <span class="lv" style="color:var(--cyan)">${esc(ev.plan||ev.result||'—')}</span></div>
+    <div class="lr"><span class="lk">Latency</span> <span class="lv">${ev.latency_ms != null ? ev.latency_ms+'ms' : '—'}</span></div>
+    ${ev.fallback ? `<div class="lr"><span class="lk" style="color:var(--red)">⚠ Fallback</span><span class="lv">${esc(ev.fallback)}</span></div>` : ''}
+  `;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   EVENT LOG
+════════════════════════════════════════════════════════════════════ */
+const logEl   = document.getElementById('log');
+const logDivs = [];
+
+function addLog(cls, html, ts) {
+  logCount++;
+  document.getElementById('log-cnt').textContent = `${logCount} events`;
+  const hh = ts ? new Date(ts*1000).toTimeString().slice(0,8) : '';
+  const d = document.createElement('div');
+  d.className = `le ${cls}`;
+  d.innerHTML = `<span class="t">${hh}</span>${html}`;
+  logDivs.push(d);
+  if (logDivs.length > MAX_LOG) {
+    const old = logDivs.shift();
+    if (old.parentNode) old.parentNode.removeChild(old);
+  }
+  logEl.appendChild(d);
+  const near = logEl.scrollTop + logEl.clientHeight > logEl.scrollHeight - 80;
+  if (near) logEl.scrollTop = logEl.scrollHeight;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   EVENT DISPATCHER
+════════════════════════════════════════════════════════════════════ */
+function dispatch(ev) {
+  const { type, ts } = ev;
+  if (type === 'ping') return;
+
+  if (type === 'init') {
+    applyState(ev.state);
+    if (ev.last_frame) showFrame(ev.last_frame);  // restore latest env image on reconnect
+    (ev.history || []).forEach(dispatch);
+    return;
+  }
+
+  if (type === 'phase_start') {
+    setText('s-ph', ev.phase_name);
+    setText('b-phase', ev.phase_name);
+    // Reset charts
+    ['sr','ret','ks','ent'].forEach(k => {
+      chartData[k].labels = []; chartData[k].datasets[0].data = [];
+      charts[k].update('none');
+    });
+    addLog('le-ph', `⚡ Phase: <b>${esc(ev.phase_name)}</b> — ${ev.total_iterations} iterations`, ts);
+    setRunning(true);
+    return;
+  }
+
+  if (type === 'phase_end') {
+    addLog('le-ph', `✅ Phase done: <b>${esc(ev.phase_name)}</b>  success_rate=${(ev.final_success_rate||0).toFixed(3)}  total_steps=${(ev.total_steps||0).toLocaleString()}`, ts);
+    setRunning(false);
+    return;
+  }
+
+  if (type === 'step') {
+    // Update stat bar
+    setText('s-st',  ev.step);
+    setText('s-ep',  ev.episode);
+    setText('s-itr', `${ev.iteration} / ${ev.total_itr||'?'}`);
+    // Update info strip
+    setTextT('i-obs',  ev.obs_text||'—');
+    setTextT('i-plan', ev.plan||'—');
+    setText('i-act',   ev.action||'—');
+    setText('i-eprew', (ev.ep_reward||0).toFixed(3));
+    // Show live frame
+    if (ev.frame) showFrame(ev.frame);
+    // Sparse step log (every 30 steps to avoid flooding)
+    if ((ev.step % 30 === 0) && ev.step > 0) {
+      const rc = ev.reward > 0 ? 'color:var(--green)' : '';
+      addLog('le-step',
+        `step ${ev.step} ep=${ev.episode} → <span style="color:var(--cyan)">${esc(ev.plan||'—')}</span>  <b>${esc(ev.action||'—')}</b>  <span style="${rc}">r=${(ev.reward||0).toFixed(2)}</span>`, ts);
+    }
+    return;
+  }
+
+  if (type === 'episode_end') {
+    // Show the final rendered frame with banner
+    if (ev.frame) showFrame(ev.frame);
+    showEpBanner(ev.success, ev.ep_len, ev.total_reward);
+    const cls = ev.success ? 'le-ep' : 'le-fail';
+    const icon = ev.success ? '✅' : '❌';
+    addLog(cls, `${icon} Episode ${ev.episode} — ${ev.success?'SUCCESS':'FAIL'}  steps=${ev.ep_len}  reward=${(ev.total_reward||0).toFixed(3)}`, ts);
+    return;
+  }
+
+  if (type === 'iteration_end') {
+    const itr = ev.iteration;
+    setText('s-sr',  ev.success_rate.toFixed(3), ev.success_rate > 0 ? 'var(--green)' : 'var(--red)');
+    setText('s-ret', ev.avg_reward.toFixed(4));
+    setText('s-ks',  ev.ks_coef.toFixed(3), 'var(--yellow)');
+    setText('s-ent', ev.entropy.toFixed(4));
+    setText('s-ts',  (ev.total_steps||0).toLocaleString());
+    setText('s-itr', `${itr} / ${ev.total_itr||'?'}`);
+    pushChart('sr',  itr, ev.success_rate);
+    pushChart('ret', itr, ev.avg_reward);
+    pushChart('ks',  itr, ev.ks_coef);
+    pushChart('ent', itr, ev.entropy);
+    addLog('le-itr',
+      `📊 Itr ${itr}  sr=${ev.success_rate.toFixed(3)}  ret=${ev.avg_reward.toFixed(3)}  ks=${ev.ks_coef.toFixed(3)}  ent=${ev.entropy.toFixed(3)}  iv=${ev.interventions||0}  plan_calls=${ev.planner_calls||0}`, ts);
+    return;
+  }
+
+  if (type === 'llm_call') {
+    updateLLM(ev);
+    const icon = ev.cache_hit ? '💾' : ev.pending ? '⟳' : (ev.success ? '🤖' : '⚠');
+    addLog('le-llm', `${icon} LLM ${esc(ev.call_type||'planner')}: <span style="color:var(--cyan)">${esc(ev.plan||ev.result||'pending…')}</span>${ev.latency_ms?` [${ev.latency_ms}ms]`:''}`, ts);
+    return;
+  }
+
+  if (type === 'intervention') {
+    setText('i-iv', ev.reason||'—');
+    addLog('le-iv', `🔔 Intervention: ${esc(ev.reason||'—')}`, ts);
+    return;
+  }
+
+  if (type === 'log') {
+    addLog('le-step', esc(ev.msg||''), ts);
+    return;
+  }
+
+  if (type === 'error') {
+    addLog('le-err', `💥 ${esc(ev.msg||'')}`, ts);
+    showToast('Training error — check log', 4000);
+    setRunning(false);
+    return;
+  }
+}
+
+function applyState(st) {
+  if (!st) return;
+  if (st.phase) { setText('s-ph', st.phase); setText('b-phase', st.phase); }
+  setText('s-itr', `${st.iteration||0} / ${st.total_itr||'?'}`);
+  setText('s-ep',  st.episode||0);
+  setText('s-st',  st.step||0);
+  setText('s-sr',  (st.success_rate||0).toFixed(3), (st.success_rate||0) > 0 ? 'var(--green)' : 'var(--red)');
+  setText('s-ret', (st.avg_reward||0).toFixed(4));
+  setText('s-ks',  (st.ks_coef||1).toFixed(3), 'var(--yellow)');
+  setText('s-ent', (st.entropy||0).toFixed(4));
+  setText('s-ts',  (st.total_steps||0).toLocaleString());
+  setTextT('i-obs',  st.obs_text||'—');
+  setTextT('i-plan', st.plan||'—');
+  setText('i-act',   st.action||'—');
+  setRunning(st.running);
+  if (st.last_llm) updateLLM(st.last_llm);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   WEBSOCKET
+════════════════════════════════════════════════════════════════════ */
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen    = () => { setStatus('Connected', true); clearTimeout(reconnTimer); };
+  ws.onmessage = e  => { try { dispatch(JSON.parse(e.data)); } catch(_){} };
+  ws.onclose   = ()  => { setStatus('Reconnecting…', false); reconnTimer = setTimeout(connect, 2500); };
+  ws.onerror   = ()  => ws.close();
+}
+
+function setStatus(txt, ok) {
+  document.getElementById('status').textContent = txt;
+  document.getElementById('dot').classList.toggle('on', ok);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   CONTROLS
+════════════════════════════════════════════════════════════════════ */
+async function startTraining() {
+  const phase = document.getElementById('sel-phase').value;
+  const body  = {
+    phase:             phase === '__all__' ? 'ppo_only' : phase,
+    run_all_phases:    phase === '__all__',
+    total_iterations:  +document.getElementById('c-itr').value,
+    episodes_per_itr:  +document.getElementById('c-eps').value,
+    ppo_epochs:        +document.getElementById('c-ep').value,
+    batch_size:        +document.getElementById('c-bs').value,
+    learning_rate:     +document.getElementById('c-lr').value,
+    use_online_llm:    document.getElementById('c-llm').checked,
+    viz_speed_hz:      +document.getElementById('c-hz').value,
+  };
+  const r = await fetch('/start', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const j = await r.json();
+  if (r.ok) { showToast(`Started: ${phase}`); setRunning(true); }
+  else       { showToast(`Error: ${j.error||r.status}`); }
+}
+
+async function stopTraining() {
+  await fetch('/stop', {method:'POST'});
+  showToast('Stop requested…');
+}
+
+function setRunning(on) {
+  document.getElementById('btn-start').style.display = on ? 'none' : '';
+  document.getElementById('btn-stop').style.display  = on ? ''     : 'none';
+  document.getElementById('dot').classList.toggle('on', on);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   UTILS
+════════════════════════════════════════════════════════════════════ */
+function setText(id, val, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  if (color) el.style.color = color;
+}
+function setTextT(id, val) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = val;
+  el.title = val;
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+let _toastTimer;
+function showToast(msg, dur=2200) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   INIT
+════════════════════════════════════════════════════════════════════ */
+connect();
+</script>
+</body>
+</html>

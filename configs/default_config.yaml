@@ -1,7 +1,0 @@
-env_name: "MiniGrid-DoorKey-5x5-v0"
-seed: 42
-max_episode_steps: 300
-total_timesteps: 500000
-learning_rate: 0.0003
-gamma: 0.99
-experiment_name: "base_minigrid_test"

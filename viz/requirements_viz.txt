@@ -1,0 +1,5 @@
+# Visualizer dependencies (add to existing requirements.txt if needed)
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+# websockets is pulled in by uvicorn[standard]
+# All other dependencies already covered by the main requirements.txt
